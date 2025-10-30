@@ -1,5 +1,6 @@
 import { WalletPerformance, Trade, TokenPosition, SwapInfo } from '../types';
 import { jupiterService } from './jupiter';
+import { simpleLogger } from '../utils/simpleLogger';
 
 const NATIVE_MINT = 'So11111111111111111111111111111111111111112';
 const USDC_MINT = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v';
@@ -151,7 +152,9 @@ export class PerformanceTracker {
     
     // If we don't have a position, don't track this trade at all
     if (!position || position.balance <= 0) {
-      console.log(`⚠️  Selling ${tokenSymbol} but no position found. Might have been bought before tracking started.`);
+      const warnMsg = `⚠️  Selling ${tokenSymbol} but no position found. Might have been bought before tracking started.`;
+      console.log(warnMsg);
+      simpleLogger.log(warnMsg);
       return; // Exit early - don't track this trade
     }
 
@@ -160,7 +163,9 @@ export class PerformanceTracker {
     const isPartialPosition = tokenAmount > position.balance;
     
     if (isPartialPosition) {
-      console.log(`⚠️  Selling ${this.formatNumber(tokenAmount)} ${tokenSymbol} but only tracking ${this.formatNumber(position.balance)}. P&L calculated on tracked amount only.`);
+      const partialMsg = `⚠️  Selling ${this.formatNumber(tokenAmount)} ${tokenSymbol} but only tracking ${this.formatNumber(position.balance)}. P&L calculated on tracked amount only.`;
+      console.log(partialMsg);
+      simpleLogger.log(partialMsg);
     }
 
     // Calculate realized P&L based on cost basis (only for tracked amount)

@@ -18,8 +18,8 @@ export class WalletTracker {
   private reconnectAttempts = 0;
   private maxReconnectAttempts = 10;
   private reconnectDelay = 5000;
-  private lastDashboardTime = 0;
-  private readonly DASHBOARD_COOLDOWN = 5000; // 5 seconds cooldown
+  private tradesProcessed = 0;
+  private readonly TRADES_BETWEEN_DASHBOARDS = 10;
 
   constructor() {
     this.connection = new Connection(config.rpcHttp, {
@@ -40,11 +40,6 @@ export class WalletTracker {
       config.trackedWallets.forEach(wallet => {
         performanceTracker.initializeWallet(wallet);
       });
-      
-      // Show performance dashboard every 60 seconds
-      setInterval(() => {
-        this.showPerformanceDashboard();
-      }, 60000);
     }
     
     // Connect to real-time WebSocket
@@ -273,18 +268,28 @@ export class WalletTracker {
             const performance = performanceTracker.getPerformance(relevantWallet);
             
             // Only log if we actually tracked this trade
-            // (processSell returns early if no position exists)
             const lastTrade = performance?.trades[performance.trades.length - 1];
             
             // Check if this swap was actually tracked
             if (lastTrade && lastTrade.signature === swapInfo.signature) {
               Logger.logTrade(swapInfo, lastTrade);
+              this.tradesProcessed++;
+              
+              // Show dashboard every N trades
+              if (this.tradesProcessed % this.TRADES_BETWEEN_DASHBOARDS === 0) {
+                this.showPerformanceDashboard();
+              }
             } else if (!outputIsBase || !inputIsBase) {
               // If it's a buy (not tracked as no position), still show it
-              // Only skip logging sells with no position
               const isSell = !inputIsBase && outputIsBase;
               if (!isSell) {
                 Logger.logTrade(swapInfo, lastTrade);
+                this.tradesProcessed++;
+                
+                // Show dashboard every N trades
+                if (this.tradesProcessed % this.TRADES_BETWEEN_DASHBOARDS === 0) {
+                  this.showPerformanceDashboard();
+                }
               }
             }
           } else {
@@ -317,7 +322,6 @@ export class WalletTracker {
   private showPerformanceDashboard(): void {
     config.trackedWallets.forEach(wallet => {
       const performance = performanceTracker.getPerformance(wallet);
-      // Only show if we have actual tracked trades
       if (performance && performance.trades.length > 0) {
         Logger.logPerformance(performance);
       }

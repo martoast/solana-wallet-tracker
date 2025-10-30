@@ -7,6 +7,7 @@ class JupiterService {
   private tokenCache: Map<string, JupiterTokenData> = new Map();
   private priceCache: Map<string, { price: number; timestamp: number }> = new Map();
   private readonly CACHE_DURATION = 60000; // 1 minute
+  private failedLookups: Set<string> = new Set(); // Track failed lookups to avoid spam
 
   constructor() {
     const baseURL = config.jupiterApiKey 
@@ -50,9 +51,23 @@ class JupiterService {
         return tokenData;
       }
 
+      // Token not found in Jupiter
+      if (!this.failedLookups.has(mintAddress)) {
+        console.log(`⚠️  Token ${mintAddress.slice(0, 8)}... not found in Jupiter database`);
+        this.failedLookups.add(mintAddress);
+      }
       return null;
-    } catch (error) {
-      console.error(`Error fetching token info for ${mintAddress}:`, error);
+    } catch (error: any) {
+      if (!this.failedLookups.has(mintAddress)) {
+        if (error.response?.status === 429) {
+          console.log(`⚠️  Jupiter API rate limit hit. Consider adding JUPITER_API_KEY to .env`);
+        } else if (error.code === 'ECONNABORTED') {
+          console.log(`⚠️  Jupiter API timeout for ${mintAddress.slice(0, 8)}...`);
+        } else {
+          console.log(`⚠️  Error fetching token info: ${error.message}`);
+        }
+        this.failedLookups.add(mintAddress);
+      }
       return null;
     }
   }
@@ -76,7 +91,7 @@ class JupiterService {
         return tokenInfo.usdPrice;
       }
     } catch (error) {
-      // Silent fail for price fetching
+      // Already logged in getTokenInfo
     }
 
     return undefined;
@@ -101,6 +116,7 @@ class JupiterService {
   clearCache(): void {
     this.tokenCache.clear();
     this.priceCache.clear();
+    this.failedLookups.clear();
   }
 }
 

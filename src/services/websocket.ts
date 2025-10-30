@@ -1,9 +1,14 @@
 import WebSocket from 'ws';
 import { Connection, PublicKey } from '@solana/web3.js';
 import { TransactionParser } from './parser';
+import { performanceTracker } from './performance';
 import { Logger } from '../utils/logger';
 import { config } from '../config/env';
 import { TransactionMessage } from '../types';
+
+const USDC_MINT = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v';
+const USDT_MINT = 'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB';
+const NATIVE_MINT = 'So11111111111111111111111111111111111111112';
 
 export class WalletTracker {
   private ws: WebSocket | null = null;
@@ -13,6 +18,8 @@ export class WalletTracker {
   private reconnectAttempts = 0;
   private maxReconnectAttempts = 10;
   private reconnectDelay = 5000;
+  private lastDashboardTime = 0;
+  private readonly DASHBOARD_COOLDOWN = 5000; // 5 seconds cooldown
 
   constructor() {
     this.connection = new Connection(config.rpcHttp, {
@@ -27,6 +34,20 @@ export class WalletTracker {
    */
   async start(): Promise<void> {
     Logger.logStartup(config.trackedWallets);
+    
+    // Initialize performance tracking for all wallets
+    if (config.trackPerformance) {
+      config.trackedWallets.forEach(wallet => {
+        performanceTracker.initializeWallet(wallet);
+      });
+      
+      // Show performance dashboard every 60 seconds
+      setInterval(() => {
+        this.showPerformanceDashboard();
+      }, 60000);
+    }
+    
+    // Connect to real-time WebSocket
     await this.connect();
   }
 
@@ -123,8 +144,15 @@ export class WalletTracker {
       }
 
     } catch (error) {
-      Logger.error('Error handling message', error);
+      // Silent fail for message handling
     }
+  }
+
+  /**
+   * Check if a token is a base token (SOL, USDC, USDT)
+   */
+  private isBaseToken(mint: string): boolean {
+    return mint === NATIVE_MINT || mint === USDC_MINT || mint === USDT_MINT;
   }
 
   /**
@@ -144,8 +172,47 @@ export class WalletTracker {
         return;
       }
 
-      // Get account keys properly from versioned transaction
-      const accountKeys = tx.transaction.message.getAccountKeys().staticAccountKeys.map(k => k.toString());
+      // Get account keys - handle both legacy and v0 transactions with ALTs
+      let accountKeys: string[];
+      try {
+        const keys = tx.transaction.message.getAccountKeys({
+          addressLookupTableAccounts: tx.meta?.loadedAddresses ? [
+            {
+              accountKey: new PublicKey('11111111111111111111111111111111'),
+              state: {
+                addresses: [
+                  ...(tx.meta.loadedAddresses.writable || []).map((addr: any) => new PublicKey(addr)),
+                  ...(tx.meta.loadedAddresses.readonly || []).map((addr: any) => new PublicKey(addr))
+                ]
+              }
+            }
+          ] as any : undefined
+        });
+        accountKeys = keys.staticAccountKeys.map(k => k.toString());
+        
+        // Add loaded addresses
+        if (tx.meta?.loadedAddresses) {
+          if (tx.meta.loadedAddresses.writable) {
+            accountKeys.push(...tx.meta.loadedAddresses.writable.map(k => k.toString()));
+          }
+          if (tx.meta.loadedAddresses.readonly) {
+            accountKeys.push(...tx.meta.loadedAddresses.readonly.map(k => k.toString()));
+          }
+        }
+      } catch (error) {
+        // Fallback: just use static keys and meta loaded addresses
+        const staticKeys = tx.transaction.message.staticAccountKeys || [];
+        accountKeys = staticKeys.map(k => k.toString());
+        
+        if (tx.meta?.loadedAddresses) {
+          if (tx.meta.loadedAddresses.writable) {
+            accountKeys.push(...tx.meta.loadedAddresses.writable.map(k => k.toString()));
+          }
+          if (tx.meta.loadedAddresses.readonly) {
+            accountKeys.push(...tx.meta.loadedAddresses.readonly.map(k => k.toString()));
+          }
+        }
+      }
 
       // Find which wallet this transaction belongs to
       const relevantWallet = config.trackedWallets.find(wallet =>
@@ -175,24 +242,86 @@ export class WalletTracker {
         }
       };
 
-      // Try to parse as swap first
+      // Try to parse as swap
       const swapInfo = await this.parser.parseTransaction(txData, relevantWallet);
 
       if (swapInfo) {
-        // Filter by minimum USD value if configured
-        const totalValue = (swapInfo.inputToken.usdValue || 0) + (swapInfo.outputToken.usdValue || 0);
-        if (totalValue >= config.minSwapValueUsd) {
-          Logger.logSwap(swapInfo);
+        // Check if this is a REAL token swap (different tokens)
+        const isDifferentTokens = swapInfo.inputToken.mint !== swapInfo.outputToken.mint;
+        const isNotJustTransfer = swapInfo.inputToken.symbol !== swapInfo.outputToken.symbol;
+        
+        // Check if both tokens are base tokens (SOL, USDC, USDT)
+        const inputIsBase = this.isBaseToken(swapInfo.inputToken.mint);
+        const outputIsBase = this.isBaseToken(swapInfo.outputToken.mint);
+        const isBothBaseTokens = inputIsBase && outputIsBase;
+        
+        // Skip if:
+        // - Same tokens OR
+        // - Just a transfer OR
+        // - Base-to-base conversions (SOL→USDC, USDC→USDT, etc.)
+        if (!isDifferentTokens || !isNotJustTransfer || isBothBaseTokens) {
+          return;
         }
-      } else {
-        // Show all other transactions
+        
+        // Filter by minimum USD value
+        const totalValue = (swapInfo.inputToken.usdValue || 0) + (swapInfo.outputToken.usdValue || 0);
+        
+        if (totalValue >= config.minSwapValueUsd || totalValue === 0) {
+          // Track performance if enabled
+          if (config.trackPerformance) {
+            await performanceTracker.processSwap(swapInfo);
+            const performance = performanceTracker.getPerformance(relevantWallet);
+            
+            // Only log if we actually tracked this trade
+            // (processSell returns early if no position exists)
+            const lastTrade = performance?.trades[performance.trades.length - 1];
+            
+            // Check if this swap was actually tracked
+            if (lastTrade && lastTrade.signature === swapInfo.signature) {
+              Logger.logTrade(swapInfo, lastTrade);
+            } else if (!outputIsBase || !inputIsBase) {
+              // If it's a buy (not tracked as no position), still show it
+              // Only skip logging sells with no position
+              const isSell = !inputIsBase && outputIsBase;
+              if (!isSell) {
+                Logger.logTrade(swapInfo, lastTrade);
+              }
+            }
+          } else {
+            Logger.logSwap(swapInfo);
+          }
+        }
+      } else if (!config.showOnlyTokenSwaps) {
+        // Check if this is just a small fee transaction
+        const solMoved = tx.meta?.postBalances && tx.meta?.preBalances
+          ? Math.abs((tx.meta.postBalances[0] - tx.meta.preBalances[0]) / 1e9)
+          : 0;
+        
+        // Skip tiny transactions (< 0.001 SOL, likely just fees)
+        if (solMoved < 0.001) {
+          return;
+        }
+        
+        // Show all other significant transactions
         Logger.logTransaction(signature, relevantWallet, tx);
       }
 
     } catch (error) {
-      // Silent fail for transaction processing errors
-      // (some transactions may fail to parse, which is normal)
+      // Silent fail for transaction processing
     }
+  }
+
+  /**
+   * Show performance dashboard for all tracked wallets
+   */
+  private showPerformanceDashboard(): void {
+    config.trackedWallets.forEach(wallet => {
+      const performance = performanceTracker.getPerformance(wallet);
+      // Only show if we have actual tracked trades
+      if (performance && performance.trades.length > 0) {
+        Logger.logPerformance(performance);
+      }
+    });
   }
 
   /**

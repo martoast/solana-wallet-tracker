@@ -9,6 +9,8 @@ export const config: Config = {
   trackedWallets: process.env.TRACKED_WALLETS?.split(',').map(w => w.trim()) || [],
   jupiterApiKey: process.env.JUPITER_API_KEY,
   minSwapValueUsd: parseFloat(process.env.MIN_SWAP_VALUE_USD || '1'),
+  trackPerformance: process.env.TRACK_PERFORMANCE !== 'false',
+  showOnlyTokenSwaps: process.env.SHOW_ONLY_TOKEN_SWAPS === 'true',
 };
 
 export function validateConfig(): void {
@@ -25,4 +27,6 @@ export function validateConfig(): void {
   console.log('✅ Configuration validated');
   console.log(`📊 Tracking ${config.trackedWallets.length} wallet(s)`);
   console.log(`💵 Min swap value filter: $${config.minSwapValueUsd}`);
+  console.log(`📈 Performance tracking: ${config.trackPerformance ? 'ON' : 'OFF'}`);
+  console.log(`🎯 Token swaps only: ${config.showOnlyTokenSwaps ? 'YES' : 'NO'}`);
 }

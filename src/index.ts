@@ -1,6 +1,7 @@
 import { validateConfig } from './config/env';
 import { WalletTracker } from './services/websocket';
 import { Logger } from './utils/logger';
+import { fileLogger } from './utils/fileLogger';
 
 /**
  * Main entry point
@@ -19,6 +20,7 @@ async function main() {
       console.log('\n');
       Logger.info('Received SIGINT, shutting down gracefully...');
       await tracker.shutdown();
+      fileLogger.close();
       process.exit(0);
     });
 
@@ -26,11 +28,13 @@ async function main() {
       console.log('\n');
       Logger.info('Received SIGTERM, shutting down gracefully...');
       await tracker.shutdown();
+      fileLogger.close();
       process.exit(0);
     });
 
   } catch (error) {
     Logger.error('Fatal error', error);
+    fileLogger.close();
     process.exit(1);
   }
 }

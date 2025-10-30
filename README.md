@@ -1,36 +1,39 @@
-# 🚀 Solana Wallet Tracker - Jupiter Edition
+# 🚀 Solana Wallet Tracker V2 - Performance Analytics Edition
 
-A professional, real-time Solana wallet transaction tracker built with TypeScript and Jupiter's Ultra API. Monitor any wallet's swap transactions with beautiful terminal output.
+A professional, real-time Solana wallet transaction tracker with **performance analytics** and **P&L tracking**. Monitor any wallet's trades and see exactly how profitable their strategy is!
 
-## ✨ Features
+## ✨ V2 Features
 
-- 🔄 **Real-time Transaction Monitoring** - WebSocket-based live tracking
-- 💎 **Jupiter Integration** - Token data and pricing via Jupiter Ultra API
-- 🎨 **Beautiful Terminal UI** - Color-coded, formatted output
-- 💰 **USD Value Tracking** - Automatic price conversion
-- 🔒 **Safe & Clean** - No private keys required, read-only monitoring
-- ⚡ **Multi-Wallet Support** - Track multiple wallets simultaneously
-- 🎯 **Smart Filtering** - Filter by minimum transaction value
+### 🎯 Performance Tracking
+- **Real-time P&L Calculation** - Automatic profit/loss tracking for every trade
+- **Win Rate Analytics** - See how many trades are profitable
+- **Position Management** - Track open positions with unrealized P&L
+- **Portfolio Simulation** - See what your portfolio would look like if you copied their trades
+- **Trade History** - Complete history of all buys and sells
+
+### 📊 Smart Analytics
+- **ROI Tracking** - Return on investment calculations
+- **Average Buy Price** - Track cost basis for each position
+- **Realized vs Unrealized P&L** - Separate closed trades from open positions
+- **Performance Dashboard** - Auto-updates every 60 seconds
+
+### 🎨 Enhanced Display
+- **Token Swap Focus** - Filter to show only meaningful trades (SOL ↔ Token)
+- **Trade Type Detection** - Clear BUY 📥 and SELL 📤 indicators
+- **P&L Visualization** - Color-coded profits (green) and losses (red)
+- **Beautiful Terminal UI** - Professional, easy-to-read output
 
 ## 📋 Prerequisites
 
 - Node.js 18+ or Bun
-- A Solana RPC endpoint (free tier works, paid recommended for production)
+- A Solana RPC endpoint (Helius recommended for best performance)
 - (Optional) Jupiter API key for higher rate limits
 
 ## 🚀 Quick Start
 
-### 1. Clone & Install
+### 1. Install Dependencies
 
 ```bash
-# Create project directory
-mkdir solana-wallet-tracker
-cd solana-wallet-tracker
-
-# Copy all files from the artifacts
-# (package.json, tsconfig.json, src/, etc.)
-
-# Install dependencies
 npm install
 # or
 bun install
@@ -39,38 +42,105 @@ bun install
 ### 2. Configure Environment
 
 ```bash
-# Copy example env file
 cp .env.example .env
-
-# Edit .env with your settings
 nano .env
 ```
 
-Required configuration:
+**Important Configuration:**
 ```env
-# Use free public RPC or paid provider (Helius, Triton, etc.)
-SOLANA_RPC_HTTP=https://api.mainnet-beta.solana.com
-SOLANA_RPC_WS=wss://api.mainnet-beta.solana.com
+# Your Helius RPC (required for best performance)
+SOLANA_RPC_HTTP=https://mainnet.helius-rpc.com/?api-key=YOUR_KEY
+SOLANA_RPC_WS=wss://mainnet.helius-rpc.com/?api-key=YOUR_KEY
 
-# Wallet address(es) to track (comma-separated)
-TRACKED_WALLETS=7otFaEnNzz9SnxHD7RGGxtW3gqgQeN3bjwU9muQP2rzp
+# Wallet to track (find active traders on pump.fun or birdeye.so)
+TRACKED_WALLETS=FCSsZQNhA9LmDW9D4tcLXgi4BkY3Bz8kjUqTYoNTaqu9
 
-# Optional: Jupiter API key for higher rate limits
-# JUPITER_API_KEY=your_key_here
+# Enable performance tracking (highly recommended!)
+TRACK_PERFORMANCE=true
 
-# Optional: Minimum swap value to display (in USD)
+# Show only token swaps (filters out transfers and noise)
+SHOW_ONLY_TOKEN_SWAPS=true
+
+# Minimum value to display
 MIN_SWAP_VALUE_USD=1
 ```
 
 ### 3. Run
 
 ```bash
-# Development mode (with auto-reload)
 npm run dev
+```
 
-# Production build
-npm run build
-npm start
+## 📊 What You'll See
+
+### Trade Notifications
+
+```
+════════════════════════════════════════════════════════════════════
+📥 BUY DETECTED - PUMP.FUN
+════════════════════════════════════════════════════════════════════
+👛 Wallet: FCSsZQNh...YoNTaqu9
+⏰ Time: 10/29/2025, 11:45:00 PM
+
+💸 SPENT:
+  Amount: 0.5000 SOL
+  Value: $97.00
+
+🎯 RECEIVED:
+  Token: BONK (Bonk)
+  Amount: 125.00K BONK
+  Value: $100.25
+  Price: 0.00000400 SOL per BONK
+
+🔗 Transaction: https://solscan.io/tx/...
+════════════════════════════════════════════════════════════════════
+```
+
+### Performance Dashboard (Auto-updates every 60s)
+
+```
+═══════════════════════════════════════════════════════════════════
+📊 WALLET PERFORMANCE DASHBOARD
+═══════════════════════════════════════════════════════════════════
+👛 Wallet: FCSsZQNh...YoNTaqu9
+
+📈 OVERALL STATS
+  Total Trades: 47
+  Win Rate: +68.42%
+  Winning Trades: 26
+  Losing Trades: 12
+
+💰 PROFIT & LOSS
+  Realized P&L: +2.4567 SOL
+  Unrealized P&L: +1.2345 SOL
+  Total P&L: +3.6912 SOL
+  ROI: +147.65%
+
+🎯 OPEN POSITIONS (3)
+  BONK:
+    Balance: 125000.0000 BONK
+    Avg Price: 0.000004 SOL
+    Invested: 0.5000 SOL
+    Current: 0.7500 SOL
+    P&L: +0.2500 SOL (+50.00%)
+    
+  GIGI:
+    Balance: 50000.0000 GIGI
+    Invested: 0.3000 SOL
+    P&L: +0.1200 SOL (+40.00%)
+
+📋 RECENT TRADES (Last 5)
+  📤 SELL BONK
+    Amount: 50.00K BONK
+    Price: 0.00000600 SOL
+    P&L: +0.1000 SOL (+50.00%)
+    Time: 10/29/2025, 11:40:15 PM
+    
+  📥 BUY GIGI
+    Amount: 50.00K GIGI
+    Price: 0.00000600 SOL
+    Time: 10/29/2025, 11:35:22 PM
+═══════════════════════════════════════════════════════════════════
 ```
 
 ## 📁 Project Structure

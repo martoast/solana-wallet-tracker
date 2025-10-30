@@ -1,8 +1,212 @@
 import chalk from 'chalk';
 import { SwapInfo, WalletPerformance, TokenPosition, Trade } from '../types';
 import { simpleLogger } from './simpleLogger.js';
+import { PerformanceTracker } from '../services/performance';
 
 export class Logger {
+  /**
+   * Log final report on shutdown
+   */
+  static logFinalReport(wallets: string[], tracker: PerformanceTracker): void {
+    const header = '═'.repeat(100);
+    const divider = '─'.repeat(100);
+    
+    console.log('\n\n');
+    console.log(chalk.bold.cyan(header));
+    console.log(chalk.bold.cyan('║') + chalk.bold.white('                          🏁 FINAL TRADING SESSION REPORT 🏁                              ') + chalk.bold.cyan('║'));
+    console.log(chalk.bold.cyan(header));
+    
+    simpleLogger.log('');
+    simpleLogger.log(header);
+    simpleLogger.log('🏁 FINAL TRADING SESSION REPORT');
+    simpleLogger.log(header);
+    
+    const now = new Date();
+    const sessionEnd = `Session Ended: ${now.toLocaleString()}`;
+    console.log(chalk.white(sessionEnd));
+    simpleLogger.log(sessionEnd);
+    
+    console.log(chalk.cyan(divider));
+    simpleLogger.log(divider);
+    
+    // Process each wallet
+    wallets.forEach((wallet, index) => {
+      const performance = tracker.getPerformance(wallet);
+      
+      if (!performance || performance.trades.length === 0) {
+        const noTrades = `\n📊 Wallet ${index + 1}: ${this.truncateAddress(wallet)}\n   No trades detected during this session.`;
+        console.log(chalk.gray(noTrades));
+        simpleLogger.log(noTrades);
+        return;
+      }
+      
+      console.log('\n');
+      console.log(chalk.bold.magenta(`📊 WALLET ${index + 1}: ${this.truncateAddress(wallet)}`));
+      simpleLogger.log('');
+      simpleLogger.log(`📊 WALLET ${index + 1}: ${this.truncateAddress(wallet)}`);
+      
+      // SUMMARY STATS
+      console.log('\n' + chalk.bold.cyan('📈 SESSION SUMMARY'));
+      simpleLogger.log('');
+      simpleLogger.log('📈 SESSION SUMMARY');
+      
+      const stats = [
+        `Total Trades: ${performance.totalTrades}`,
+        `Closed Trades: ${performance.winningTrades + performance.losingTrades}`,
+        `Open Positions: ${performance.positions.size}`,
+      ];
+      
+      stats.forEach(stat => {
+        console.log(chalk.white(`  ${stat}`));
+        simpleLogger.log(`  ${stat}`);
+      });
+      
+      // WIN/LOSS STATS
+      const totalClosedTrades = performance.winningTrades + performance.losingTrades;
+      if (totalClosedTrades > 0) {
+        console.log('\n' + chalk.bold.cyan('🎯 WIN/LOSS RECORD'));
+        simpleLogger.log('');
+        simpleLogger.log('🎯 WIN/LOSS RECORD');
+        
+        const winRate = `  Win Rate: ${this.formatPercent(performance.winRate)}`;
+        const wins = `  Winning Trades: ${performance.winningTrades} 🟢`;
+        const losses = `  Losing Trades: ${performance.losingTrades} 🔴`;
+        
+        console.log(chalk.white('  Win Rate:'), this.colorizePercent(performance.winRate));
+        console.log(chalk.white('  Winning Trades:'), chalk.green(`${performance.winningTrades} 🟢`));
+        console.log(chalk.white('  Losing Trades:'), chalk.red(`${performance.losingTrades} 🔴`));
+        
+        simpleLogger.log(winRate);
+        simpleLogger.log(wins);
+        simpleLogger.log(losses);
+      }
+      
+      // P&L BREAKDOWN
+      console.log('\n' + chalk.bold.cyan('💰 PROFIT & LOSS (USD)'));
+      simpleLogger.log('');
+      simpleLogger.log('💰 PROFIT & LOSS (USD)');
+      
+      const realizedPnL = `  Realized P&L: ${this.formatValue(performance.totalRealizedPnL, 'USD')}`;
+      const unrealizedPnL = `  Unrealized P&L: ${this.formatValue(performance.totalUnrealizedPnL, 'USD')}`;
+      const totalPnL = `  Total P&L: ${this.formatValue(performance.totalPnL, 'USD')}`;
+      const roi = `  ROI: ${this.formatPercent(performance.roi)}`;
+      
+      console.log(chalk.white('  Realized P&L:'), this.colorizeValue(performance.totalRealizedPnL, 'USD'));
+      console.log(chalk.white('  Unrealized P&L:'), this.colorizeValue(performance.totalUnrealizedPnL, 'USD'));
+      console.log(chalk.white('  Total P&L:'), this.colorizeValue(performance.totalPnL, 'USD'));
+      console.log(chalk.white('  ROI:'), this.colorizePercent(performance.roi));
+      
+      simpleLogger.log(realizedPnL);
+      simpleLogger.log(unrealizedPnL);
+      simpleLogger.log(totalPnL);
+      simpleLogger.log(roi);
+      
+      // TOP 5 WINNERS
+      const winners = performance.trades
+        .filter(t => t.realizedPnL && t.realizedPnL > 0)
+        .sort((a, b) => (b.realizedPnL || 0) - (a.realizedPnL || 0))
+        .slice(0, 5);
+      
+      if (winners.length > 0) {
+        console.log('\n' + chalk.bold.green('🏆 TOP 5 WINNING TRADES'));
+        simpleLogger.log('');
+        simpleLogger.log('🏆 TOP 5 WINNING TRADES');
+        
+        winners.forEach((trade, i) => {
+          const tradeInfo = `  ${i + 1}. ${trade.tokenSymbol}: ${this.formatValue(trade.realizedPnL!, 'USD')} (${this.formatPercent(trade.realizedPnLPercent || 0)})`;
+          console.log(chalk.green(tradeInfo));
+          simpleLogger.log(tradeInfo);
+        });
+      }
+      
+      // TOP 5 LOSERS
+      const losers = performance.trades
+        .filter(t => t.realizedPnL && t.realizedPnL < 0)
+        .sort((a, b) => (a.realizedPnL || 0) - (b.realizedPnL || 0))
+        .slice(0, 5);
+      
+      if (losers.length > 0) {
+        console.log('\n' + chalk.bold.red('💔 TOP 5 LOSING TRADES'));
+        simpleLogger.log('');
+        simpleLogger.log('💔 TOP 5 LOSING TRADES');
+        
+        losers.forEach((trade, i) => {
+          const tradeInfo = `  ${i + 1}. ${trade.tokenSymbol}: ${this.formatValue(trade.realizedPnL!, 'USD')} (${this.formatPercent(trade.realizedPnLPercent || 0)})`;
+          console.log(chalk.red(tradeInfo));
+          simpleLogger.log(tradeInfo);
+        });
+      }
+      
+      // BEST OPEN POSITIONS
+      if (performance.positions.size > 0) {
+        const topPositions = Array.from(performance.positions.values())
+          .sort((a, b) => b.unrealizedPnL - a.unrealizedPnL)
+          .slice(0, 5);
+        
+        console.log('\n' + chalk.bold.cyan('📊 TOP 5 OPEN POSITIONS'));
+        simpleLogger.log('');
+        simpleLogger.log('📊 TOP 5 OPEN POSITIONS');
+        
+        topPositions.forEach((pos, i) => {
+          const posInfo = `  ${i + 1}. ${pos.symbol}: ${this.formatValue(pos.unrealizedPnL, 'USD')} (${this.formatPercent(pos.unrealizedPnLPercent)}) - ${this.formatNumber(pos.balance)} tokens`;
+          
+          if (pos.unrealizedPnL >= 0) {
+            console.log(chalk.green(posInfo));
+          } else {
+            console.log(chalk.red(posInfo));
+          }
+          simpleLogger.log(posInfo);
+        });
+      }
+      
+      // TRADING ACTIVITY
+      console.log('\n' + chalk.bold.cyan('⚡ TRADING ACTIVITY'));
+      simpleLogger.log('');
+      simpleLogger.log('⚡ TRADING ACTIVITY');
+      
+      const buyTrades = performance.trades.filter(t => t.type === 'BUY').length;
+      const sellTrades = performance.trades.filter(t => t.type === 'SELL').length;
+      
+      const activity = [
+        `  Total Buys: ${buyTrades} 📥`,
+        `  Total Sells: ${sellTrades} 📤`,
+        `  Avg Trade Size: $${this.formatNumber(this.calculateAvgTradeSize(performance))}`,
+      ];
+      
+      activity.forEach(line => {
+        console.log(chalk.white(line));
+        simpleLogger.log(line);
+      });
+      
+      console.log('\n' + chalk.cyan(divider));
+      simpleLogger.log('');
+      simpleLogger.log(divider);
+    });
+    
+    console.log('\n' + chalk.bold.cyan(header));
+    console.log(chalk.bold.white('                          Thank you for using Solana Wallet Tracker! 🚀'));
+    console.log(chalk.bold.cyan(header) + '\n');
+    
+    simpleLogger.log('');
+    simpleLogger.log(header);
+    simpleLogger.log('Thank you for using Solana Wallet Tracker! 🚀');
+    simpleLogger.log(header);
+    simpleLogger.log('');
+  }
+
+  /**
+   * Calculate average trade size
+   */
+  private static calculateAvgTradeSize(performance: WalletPerformance): number {
+    if (performance.trades.length === 0) return 0;
+    
+    const totalValue = performance.trades.reduce((sum, trade) => {
+      return sum + (trade.usdValue || 0);
+    }, 0);
+    
+    return totalValue / performance.trades.length;
+  }
+
   /**
    * Log a swap transaction with beautiful formatting
    */
@@ -10,90 +214,69 @@ export class Logger {
     // Detect DEX type for display
     const dexType = this.detectDEXFromTokens(swap);
     
-    const header = '═'.repeat(80);
-    const title = `🔄 TOKEN SWAP DETECTED ${dexType ? `- ${dexType}` : ''}`;
-    
-    console.log('\n' + chalk.cyan(header));
-    console.log(chalk.bold.green(title));
-    console.log(chalk.cyan(header));
+    console.log('\n' + chalk.cyan('═'.repeat(80)));
+    console.log(chalk.bold.green(`🔄 TOKEN SWAP DETECTED ${dexType ? `- ${dexType}` : ''}`));
+    console.log(chalk.cyan('═'.repeat(80)));
     
     simpleLogger.log('');
-    simpleLogger.log(header);
-    simpleLogger.log(title);
-    simpleLogger.log(header);
+    simpleLogger.log('═'.repeat(80));
+    simpleLogger.log(`🔄 TOKEN SWAP DETECTED ${dexType ? `- ${dexType}` : ''}`);
+    simpleLogger.log('═'.repeat(80));
     
     // Wallet info
-    const walletLine = `👛 Wallet: ${this.truncateAddress(swap.wallet)}`;
-    const timeLine = `⏰ Time: ${new Date(swap.timestamp).toLocaleString()}`;
-    
     console.log(chalk.bold('👛 Wallet:'), chalk.yellow(this.truncateAddress(swap.wallet)));
     console.log(chalk.bold('⏰ Time:'), chalk.white(new Date(swap.timestamp).toLocaleString()));
     
-    simpleLogger.log(walletLine);
-    simpleLogger.log(timeLine);
+    simpleLogger.log(`👛 Wallet: ${this.truncateAddress(swap.wallet)}`);
+    simpleLogger.log(`⏰ Time: ${new Date(swap.timestamp).toLocaleString()}`);
     
     // Input token
-    const soldHeader = '📤 SOLD:';
-    console.log('\n' + chalk.bold.red(soldHeader));
+    console.log('\n' + chalk.bold.red('📤 SOLD:'));
     simpleLogger.log('');
-    simpleLogger.log(soldHeader);
-    
-    const inputToken = `  Token: ${swap.inputToken.symbol} (${swap.inputToken.name})`;
-    const inputAmount = `  Amount: ${this.formatNumber(swap.inputToken.uiAmount)} ${swap.inputToken.symbol}`;
+    simpleLogger.log('📤 SOLD:');
     
     console.log(chalk.white('  Token:'), chalk.bold(`${swap.inputToken.symbol} (${swap.inputToken.name})`));
     console.log(chalk.white('  Amount:'), chalk.bold.red(`${this.formatNumber(swap.inputToken.uiAmount)} ${swap.inputToken.symbol}`));
     
-    simpleLogger.log(inputToken);
-    simpleLogger.log(inputAmount);
+    simpleLogger.log(`  Token: ${swap.inputToken.symbol} (${swap.inputToken.name})`);
+    simpleLogger.log(`  Amount: ${this.formatNumber(swap.inputToken.uiAmount)} ${swap.inputToken.symbol}`);
     
     if (swap.inputToken.usdValue) {
-      const inputValue = `  Value: $${this.formatNumber(swap.inputToken.usdValue)}`;
       console.log(chalk.white('  Value:'), chalk.bold.red(`$${this.formatNumber(swap.inputToken.usdValue)}`));
-      simpleLogger.log(inputValue);
+      simpleLogger.log(`  Value: $${this.formatNumber(swap.inputToken.usdValue)}`);
     }
     
-    const inputMint = `  Mint: ${this.truncateAddress(swap.inputToken.mint)}`;
     console.log(chalk.white('  Mint:'), chalk.gray(this.truncateAddress(swap.inputToken.mint)));
-    simpleLogger.log(inputMint);
+    simpleLogger.log(`  Mint: ${this.truncateAddress(swap.inputToken.mint)}`);
 
     // Output token
-    const boughtHeader = '📥 BOUGHT:';
-    console.log('\n' + chalk.bold.green(boughtHeader));
+    console.log('\n' + chalk.bold.green('📥 BOUGHT:'));
     simpleLogger.log('');
-    simpleLogger.log(boughtHeader);
-    
-    const outputToken = `  Token: ${swap.outputToken.symbol} (${swap.outputToken.name})`;
-    const outputAmount = `  Amount: ${this.formatNumber(swap.outputToken.uiAmount)} ${swap.outputToken.symbol}`;
+    simpleLogger.log('📥 BOUGHT:');
     
     console.log(chalk.white('  Token:'), chalk.bold(`${swap.outputToken.symbol} (${swap.outputToken.name})`));
     console.log(chalk.white('  Amount:'), chalk.bold.green(`${this.formatNumber(swap.outputToken.uiAmount)} ${swap.outputToken.symbol}`));
     
-    simpleLogger.log(outputToken);
-    simpleLogger.log(outputAmount);
+    simpleLogger.log(`  Token: ${swap.outputToken.symbol} (${swap.outputToken.name})`);
+    simpleLogger.log(`  Amount: ${this.formatNumber(swap.outputToken.uiAmount)} ${swap.outputToken.symbol}`);
     
     if (swap.outputToken.usdValue) {
-      const outputValue = `  Value: $${this.formatNumber(swap.outputToken.usdValue)}`;
       console.log(chalk.white('  Value:'), chalk.bold.green(`$${this.formatNumber(swap.outputToken.usdValue)}`));
-      simpleLogger.log(outputValue);
+      simpleLogger.log(`  Value: $${this.formatNumber(swap.outputToken.usdValue)}`);
     }
     
-    const outputMint = `  Mint: ${this.truncateAddress(swap.outputToken.mint)}`;
     console.log(chalk.white('  Mint:'), chalk.gray(this.truncateAddress(swap.outputToken.mint)));
-    simpleLogger.log(outputMint);
+    simpleLogger.log(`  Mint: ${this.truncateAddress(swap.outputToken.mint)}`);
 
     // Transaction link
-    const txHeader = '🔗 Transaction:';
-    const txLink = `  https://solscan.io/tx/${swap.signature}`;
-    
-    console.log('\n' + chalk.bold(txHeader));
-    console.log(chalk.blue.underline(txLink));
-    console.log(chalk.cyan(header) + '\n');
+    console.log('\n' + chalk.bold('🔗 Transaction:'));
+    console.log(chalk.blue.underline(`  https://solscan.io/tx/${swap.signature}`));
+    console.log(chalk.cyan('═'.repeat(80)) + '\n');
     
     simpleLogger.log('');
-    simpleLogger.log(txHeader);
-    simpleLogger.log(txLink);
-    simpleLogger.log(header);
+    simpleLogger.log('🔗 Transaction:');
+    simpleLogger.log(`  https://solscan.io/tx/${swap.signature}`);
+    simpleLogger.log('═'.repeat(80));
     simpleLogger.log('');
   }
 

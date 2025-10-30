@@ -20,6 +20,10 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 
+# Reports (keep structure, ignore wallet reports)
+reports/wallets/*.md
+!reports/wallets/.gitkeep
+
 # OS files
 .DS_Store
 Thumbs.db

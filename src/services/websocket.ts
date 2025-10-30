@@ -20,6 +20,7 @@ export class WalletTracker {
   private reconnectDelay = 5000;
   private tradesProcessed = 0;
   private readonly TRADES_BETWEEN_DASHBOARDS = 10;
+  private isShuttingDown = false;
 
   constructor() {
     this.connection = new Connection(config.rpcHttp, {
@@ -44,6 +45,52 @@ export class WalletTracker {
     
     // Connect to real-time WebSocket
     await this.connect();
+
+    // Set up command listener for graceful shutdown
+    this.setupCommandListener();
+  }
+
+  /**
+   * Setup command listener for user input
+   */
+  private setupCommandListener(): void {
+    const readline = require('readline');
+    const rl = readline.createInterface({
+      input: process.stdin,
+      output: process.stdout,
+      terminal: false
+    });
+
+    console.log(Logger.info('Type "stop" or "exit" to generate final report and shutdown gracefully'));
+
+    rl.on('line', async (input: string) => {
+      const command = input.trim().toLowerCase();
+      if (command === 'stop' || command === 'exit' || command === 'quit') {
+        await this.gracefulShutdown();
+        process.exit(0);
+      }
+    });
+  }
+
+  /**
+   * Graceful shutdown with final report
+   */
+  async gracefulShutdown(): Promise<void> {
+    if (this.isShuttingDown) return;
+    this.isShuttingDown = true;
+
+    Logger.info('Initiating graceful shutdown...');
+    
+    // Close WebSocket
+    if (this.ws) {
+      this.ws.close();
+    }
+
+    // Generate final report for all wallets
+    console.log('\n\n');
+    Logger.logFinalReport(config.trackedWallets, performanceTracker);
+    
+    Logger.success('Tracker stopped. Final report generated.');
   }
 
   /**
@@ -68,8 +115,10 @@ export class WalletTracker {
       });
 
       this.ws.on('close', () => {
-        Logger.warn('WebSocket connection closed');
-        this.handleReconnect();
+        if (!this.isShuttingDown) {
+          Logger.warn('WebSocket connection closed');
+          this.handleReconnect();
+        }
       });
 
     } catch (error) {
@@ -332,6 +381,8 @@ export class WalletTracker {
    * Handle reconnection
    */
   private handleReconnect(): void {
+    if (this.isShuttingDown) return;
+    
     if (this.reconnectAttempts >= this.maxReconnectAttempts) {
       Logger.error('Max reconnection attempts reached. Exiting...');
       process.exit(1);
@@ -349,12 +400,6 @@ export class WalletTracker {
    * Clean shutdown
    */
   async shutdown(): Promise<void> {
-    Logger.info('Shutting down...');
-    
-    if (this.ws) {
-      this.ws.close();
-    }
-
-    Logger.success('Shutdown complete');
+    await this.gracefulShutdown();
   }
 }

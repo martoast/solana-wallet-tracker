@@ -1,7 +1,7 @@
 import { validateConfig } from './config/env';
 import { WalletTracker } from './services/websocket';
 import { Logger } from './utils/logger';
-import { simpleLogger } from './utils/simpleLogger';
+import { simpleLogger } from './utils/simpleLogger.js';
 
 /**
  * Main entry point
@@ -15,18 +15,19 @@ async function main() {
     const tracker = new WalletTracker();
     await tracker.start();
 
-    // Handle graceful shutdown
+    // Handle Ctrl+C gracefully with final report
     process.on('SIGINT', async () => {
       console.log('\n');
-      Logger.info('Received SIGINT, shutting down gracefully...');
+      Logger.info('Received Ctrl+C, generating final report...');
       await tracker.shutdown();
       simpleLogger.close();
       process.exit(0);
     });
 
+    // Handle kill signal gracefully
     process.on('SIGTERM', async () => {
       console.log('\n');
-      Logger.info('Received SIGTERM, shutting down gracefully...');
+      Logger.info('Received SIGTERM, generating final report...');
       await tracker.shutdown();
       simpleLogger.close();
       process.exit(0);

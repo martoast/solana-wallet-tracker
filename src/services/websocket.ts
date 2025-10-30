@@ -22,10 +22,15 @@ export class WalletTracker {
   private readonly TRADES_BETWEEN_DASHBOARDS = 10;
   private isShuttingDown = false;
 
+  // Performance tracking
+  private transactionTimings: number[] = [];
+
   constructor() {
+    // ⚡ OPTIMIZED: Use 'processed' for fastest confirmation
     this.connection = new Connection(config.rpcHttp, {
-      commitment: 'confirmed',
-      wsEndpoint: config.rpcWs
+      commitment: 'processed', // Changed from 'confirmed' - 400ms faster!
+      wsEndpoint: config.rpcWs,
+      confirmTransactionInitialTimeout: 30000 // Reduced from 60000
     });
     this.parser = new TransactionParser(this.connection);
   }
@@ -61,15 +66,38 @@ export class WalletTracker {
       terminal: false
     });
 
-    console.log(Logger.info('Type "stop" or "exit" to generate final report and shutdown gracefully'));
+    Logger.info('Type "stop" or "exit" to generate final report and shutdown gracefully');
+    Logger.info('Type "speed" to see performance statistics');
 
     rl.on('line', async (input: string) => {
       const command = input.trim().toLowerCase();
       if (command === 'stop' || command === 'exit' || command === 'quit') {
         await this.gracefulShutdown();
         process.exit(0);
+      } else if (command === 'speed' || command === 'stats') {
+        this.showSpeedStats();
       }
     });
+  }
+
+  /**
+   * Show speed statistics
+   */
+  private showSpeedStats(): void {
+    if (this.transactionTimings.length === 0) {
+      console.log('⚡ No transactions processed yet');
+      return;
+    }
+
+    const avg = this.transactionTimings.reduce((a, b) => a + b, 0) / this.transactionTimings.length;
+    const min = Math.min(...this.transactionTimings);
+    const max = Math.max(...this.transactionTimings);
+
+    console.log('\n⚡ SPEED STATISTICS');
+    console.log(`Average latency: ${avg.toFixed(0)}ms`);
+    console.log(`Fastest: ${min}ms`);
+    console.log(`Slowest: ${max}ms`);
+    console.log(`Transactions: ${this.transactionTimings.length}\n`);
   }
 
   /**
@@ -80,6 +108,9 @@ export class WalletTracker {
     this.isShuttingDown = true;
 
     Logger.info('Initiating graceful shutdown...');
+    
+    // Show final speed stats
+    this.showSpeedStats();
     
     // Close WebSocket
     if (this.ws) {
@@ -156,7 +187,7 @@ export class WalletTracker {
           mentions: [walletAddress]
         },
         {
-          commitment: 'confirmed'
+          commitment: 'processed' // ⚡ Changed from 'confirmed'
         }
       ]
     };
@@ -203,14 +234,28 @@ export class WalletTracker {
    * Process a transaction by signature
    */
   private async processTransaction(signature: string): Promise<void> {
+    // ⚡ START TIMING
+    const startTime = Date.now();
+    
     try {
-      // Small delay to ensure transaction is confirmed
-      await new Promise(resolve => setTimeout(resolve, 1000));
-
+      // ⚡ REMOVED ARTIFICIAL 1-SECOND DELAY!
+      // This was killing your speed
+      
+      // ⚡ Use 'confirmed' (getTransaction doesn't support 'processed')
+      // But we removed the 1-second delay which gives us 1000ms back!
       const tx = await this.connection.getTransaction(signature, {
         commitment: 'confirmed',
         maxSupportedTransactionVersion: 0
       });
+
+      // ⚡ MEASURE SPEED
+      const fetchTime = Date.now() - startTime;
+      this.transactionTimings.push(fetchTime);
+      
+      // Keep only last 100 timings
+      if (this.transactionTimings.length > 100) {
+        this.transactionTimings.shift();
+      }
 
       if (!tx) {
         return;
@@ -219,22 +264,11 @@ export class WalletTracker {
       // Get account keys - handle both legacy and v0 transactions with ALTs
       let accountKeys: string[];
       try {
-        const keys = tx.transaction.message.getAccountKeys({
-          addressLookupTableAccounts: tx.meta?.loadedAddresses ? [
-            {
-              accountKey: new PublicKey('11111111111111111111111111111111'),
-              state: {
-                addresses: [
-                  ...(tx.meta.loadedAddresses.writable || []).map((addr: any) => new PublicKey(addr)),
-                  ...(tx.meta.loadedAddresses.readonly || []).map((addr: any) => new PublicKey(addr))
-                ]
-              }
-            }
-          ] as any : undefined
-        });
+        // For v0 transactions with address lookup tables
+        const keys = tx.transaction.message.getAccountKeys();
         accountKeys = keys.staticAccountKeys.map(k => k.toString());
         
-        // Add loaded addresses
+        // Add loaded addresses from lookup tables
         if (tx.meta?.loadedAddresses) {
           if (tx.meta.loadedAddresses.writable) {
             accountKeys.push(...tx.meta.loadedAddresses.writable.map(k => k.toString()));
